@@ -8,15 +8,17 @@ import math
 class BZFontGenerator:
     def __init__(self, root):
         self.root = root
-        self.root.title("BZ Holographic Text Suite")
-        self.root.geometry("750x900")
+        self.root.title("BZ Holographic Text Suite - Dual Mode")
+        self.root.geometry("750x950")
         
+        # Paths & Settings
         self.output_dir = tk.StringVar(value=os.path.join(os.getcwd(), "output"))
         self.font_path = tk.StringVar(value="Arial") 
         self.font_size = tk.IntVar(value=48)
         self.variant_count = tk.IntVar(value=10)
         self.text_color = "#00FF00"
         self.spacing = tk.DoubleVar(value=1.5)
+        self.export_mode = tk.StringVar(value="Sheet") # "Individual" or "Sheet"
         
         self.create_widgets()
 
@@ -28,9 +30,15 @@ class BZFontGenerator:
         tab_control.add(self.lua_tab, text='2. Lua Code Generator')
         tab_control.pack(expand=1, fill="both")
 
-        # --- GENERATOR UI ---
+        # --- GENERATOR TAB ---
         gen_frame = ttk.Frame(self.gen_tab, padding="20")
         gen_frame.pack(fill="both", expand=True)
+
+        # Mode Selection
+        mode_labelframe = ttk.LabelFrame(gen_frame, text=" Export Strategy ", padding=10)
+        mode_labelframe.pack(fill="x", pady=(0, 15))
+        ttk.Radiobutton(mode_labelframe, text="Individual DDS (95+ Textures)", variable=self.export_mode, value="Individual").pack(side="left", padx=10)
+        ttk.Radiobutton(mode_labelframe, text="Sprite Sheet (1 Texture + .STA)", variable=self.export_mode, value="Sheet").pack(side="left", padx=10)
 
         ttk.Label(gen_frame, text="Output Directory:").pack(anchor="w")
         path_frame = ttk.Frame(gen_frame)
@@ -47,13 +55,13 @@ class BZFontGenerator:
         ttk.Label(gen_frame, text="Variants per Character:").pack(anchor="w")
         ttk.Spinbox(gen_frame, from_=1, to=20, textvariable=self.variant_count).pack(fill="x", pady=5)
 
-        ttk.Button(gen_frame, text="Select Color", command=self.choose_color).pack(pady=5)
-        self.color_preview = tk.Frame(gen_frame, height=20, bg=self.text_color)
+        ttk.Button(gen_frame, text="Select Text Color", command=self.choose_color).pack(pady=10)
+        self.color_preview = tk.Frame(gen_frame, height=25, bg=self.text_color, relief="sunken", borderwidth=1)
         self.color_preview.pack(fill="x", pady=(0, 20))
 
-        ttk.Button(gen_frame, text="BUILD SPRITE SHEET & ODFS", command=self.generate, style="Accent.TButton").pack(fill="x", ipady=15)
+        ttk.Button(gen_frame, text="BUILD ALL ASSETS", command=self.generate, style="Accent.TButton", cursor="hand2").pack(fill="x", ipady=15)
 
-        # --- LUA UI ---
+        # --- LUA TAB ---
         lua_frame = ttk.Frame(self.lua_tab, padding="20")
         lua_frame.pack(fill="both", expand=True)
         ttk.Label(lua_frame, text="Source Object Handle:").pack(anchor="w")
@@ -66,6 +74,7 @@ class BZFontGenerator:
         self.lua_output = tk.Text(lua_frame, height=20, font=("Consolas", 10), bg="#1e1e1e", fg="#d4d4d4", padx=10, pady=10)
         self.lua_output.pack(fill="both", expand=True)
 
+    # --- SHARED LOGIC ---
     def get_ascii_map(self):
         return {32:"sp", 33:"ex", 34:"qu", 35:"ha", 36:"dl", 37:"pc", 38:"am", 39:"ap", 40:"lp", 41:"rp", 42:"as", 43:"pl", 44:"cm", 45:"da", 46:"dt", 47:"sl", 58:"cl", 59:"sc", 60:"lt", 61:"eq", 62:"gt", 63:"qm", 64:"at", 91:"lb", 92:"bs", 93:"rb", 94:"cr", 95:"un", 96:"gr", 123:"lc", 124:"pi", 125:"rc", 126:"ti"}
 
@@ -81,7 +90,7 @@ class BZFontGenerator:
 
     def generate_lua_block(self):
         text = self.lua_input.get(); h = self.handle_name.get(); ascii_map = self.get_ascii_map(); s = self.spacing.get(); usage = {}
-        lua = [f"-- Auto-generated for text: {text}", f"local pos = GetPosition({h})", f"local rt = GetRight({h})", f"local up = GetUp({h})"]
+        lua = [f"-- Generated for: {text}", f"local pos = GetPosition({h})", f"local rt = GetRight({h})", f"local up = GetUp({h})"]
         total_width = (len(text) - 1) * s; start_offset = -(total_width / 2)
         for i, char in enumerate(text):
             if char == " ": continue
@@ -95,26 +104,45 @@ class BZFontGenerator:
             lua.append(f'MakeExplosion("{odf}", pos + (rt * {offset:.2f}) + (up * 2.5))')
         self.lua_output.delete(1.0, tk.END); self.lua_output.insert(tk.END, "\n".join(lua))
 
+    # --- CORE GENERATOR ---
     def generate(self):
         out = self.output_dir.get()
         if not os.path.exists(out): os.makedirs(out)
+        
+        # Build master list
         chars = []
-        for i in range(65, 91): chars.append((f"ui{chr(i)}", chr(i)))
-        for i in range(97, 123): chars.append((f"uiL{chr(i).upper()}", chr(i)))
-        for i in range(48, 58): chars.append((f"ui{chr(i)}", chr(i)))
+        for i in range(65, 91): chars.append((f"ui{chr(i)}", chr(i))) # Caps
+        for i in range(97, 123): chars.append((f"uiL{chr(i).upper()}", chr(i))) # Lower
+        for i in range(48, 58): chars.append((f"ui{chr(i)}", chr(i))) # Numbers
         for code, name in self.get_ascii_map().items(): chars.append((f"ui_{name}", chr(code)))
 
-        # 1. Master Material
-        with open(os.path.join(out, "font_sheet.material"), "w") as mf:
-            mf.write('import * from "sprites.material"\n\nmaterial font_sheet : BZSprite/Additive\n{\n\tset_texture_alias DiffuseMap font_sheet.dds\n}\n')
+        mode = self.export_mode.get()
+        
+        if mode == "Sheet":
+            self.build_sprite_sheet(chars, out)
+        else:
+            self.build_individual_files(chars, out)
 
-        # 2. Texture & STA logic
+        # DDS Conversion
+        tconv = os.path.join(os.getcwd(), "texconv.exe")
+        if os.path.exists(tconv):
+            subprocess.run([tconv, "-f", "BC3_UNORM", "-y", "-o", out, os.path.join(out, "*.png")], creationflags=subprocess.CREATE_NO_WINDOW)
+            for f in os.listdir(out): 
+                if f.endswith(".png"): os.remove(os.path.join(out, f))
+        
+        messagebox.showinfo("Success", f"Build complete using {mode} method.")
+
+    def build_sprite_sheet(self, chars, out):
         char_size, cols, sheet_dim = 64, 16, 1024
         sheet = Image.new("RGBA", (sheet_dim, sheet_dim), (0, 0, 0, 0))
         draw = ImageDraw.Draw(sheet)
         try:
             fnt = ImageFont.truetype(self.font_path.get(), self.font_size.get()) if os.path.exists(self.font_path.get()) else ImageFont.truetype(f"{self.font_path.get()}.ttf", self.font_size.get())
         except: fnt = ImageFont.load_default()
+
+        # Build Material
+        with open(os.path.join(out, "font_sheet.material"), "w") as mf:
+            mf.write('import * from "sprites.material"\n\nmaterial font_sheet : BZSprite/Additive\n{\n\tset_texture_alias DiffuseMap font_sheet.dds\n}\n')
 
         sta_lines = ["# BZ Sprite Sheet"]
         for idx, (base, char) in enumerate(chars):
@@ -126,22 +154,35 @@ class BZFontGenerator:
             for i in range(1, self.variant_count.get() + 1):
                 vn = f"{base}{i}"
                 sta_lines.append(f'"{vn}" font_sheet {x} {y} {char_size} {char_size} {sheet_dim} {sheet_dim} 0x00000000')
-                
-                # CORRECTION: ODF textureName is now "uiA1", matching the STA entry exactly
-                with open(os.path.join(out, f"{vn}.odf"), "w") as f:
-                    f.write(f'[ExplosionClass]\nclassLabel="explosion"\nparticleTypes=1\nparticleClass1="{vn}.l"\nparticleCount1=1\n\n[l]\nrenderBase="draw_sprite"\nsimulateBase="sim_null"\ntextureName="{vn}"\nstartColor="255 255 255 255"\nfinishColor="255 255 255 255"\nstartRadius=1.2\nfinishRadius=1.2\nanimateTime=1e30\nlifeTime=0.5\n')
+                self.write_odf(out, vn, vn) # Texture name matches STA entry exactly (no extension)
 
         sheet.save(os.path.join(out, "font_sheet.png"))
         with open(os.path.join(out, "font_sheet.sta"), "w") as f:
             f.write("\n".join(sta_lines))
 
-        # 3. DDS Process
-        tconv = os.path.join(os.getcwd(), "texconv.exe")
-        if os.path.exists(tconv):
-            subprocess.run([tconv, "-f", "BC3_UNORM", "-y", "-o", out, os.path.join(out, "*.png")], creationflags=subprocess.CREATE_NO_WINDOW)
-            if os.path.exists(os.path.join(out, "font_sheet.png")): os.remove(os.path.join(out, "font_sheet.png"))
-        
-        messagebox.showinfo("Success", "Build complete with no-extension ODF lookups.")
+    def build_individual_files(self, chars, out):
+        try:
+            fnt = ImageFont.truetype(self.font_path.get(), self.font_size.get()) if os.path.exists(self.font_path.get()) else ImageFont.truetype(f"{self.font_path.get()}.ttf", self.font_size.get())
+        except: fnt = ImageFont.load_default()
+
+        for base, char in chars:
+            img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            b = draw.textbbox((0, 0), char, font=fnt)
+            draw.text(((64-(b[2]-b[0]))/2, (64-(b[3]-b[1]))/2 - b[1]), char, font=fnt, fill=self.text_color)
+            img.save(os.path.join(out, f"{base}.png"))
+
+            for i in range(1, self.variant_count.get() + 1):
+                vn = f"{base}{i}"
+                # Create ODF pointing to .tga material
+                self.write_odf(out, vn, f"{vn}.tga")
+                # Create individual material file
+                with open(os.path.join(out, f"{vn}.material"), "w") as f:
+                    f.write(f'import * from "sprites.material"\nmaterial {vn}.tga : BZSprite/Additive\n{{\n\tset_texture_alias DiffuseMap {base}.dds\n}}\n')
+
+    def write_odf(self, out, odf_name, tex_lookup):
+        with open(os.path.join(out, f"{odf_name}.odf"), "w") as f:
+            f.write(f'[ExplosionClass]\nclassLabel="explosion"\nparticleTypes=1\nparticleClass1="{odf_name}.l"\nparticleCount1=1\n\n[l]\nrenderBase="draw_sprite"\nsimulateBase="sim_null"\ntextureName="{tex_lookup}"\nstartColor="255 255 255 255"\nfinishColor="255 255 255 255"\nstartRadius=1.2\nfinishRadius=1.2\nanimateTime=1e30\nlifeTime=0.5\n')
 
 if __name__ == "__main__":
     root = tk.Tk()
