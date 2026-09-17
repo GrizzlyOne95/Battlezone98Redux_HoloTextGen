@@ -45,8 +45,11 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
 
-    - name: Verify metadata generator
-      run: python -m py_compile scripts/generate_version_info.py
+    - name: Verify build helpers and apply product branding
+      run: |
+        python -m py_compile scripts/generate_version_info.py scripts/apply_product_branding.py hud_gen.py
+        python scripts/apply_product_branding.py hud_gen.py
+        python -m py_compile hud_gen.py
 
     - name: Generate Windows version metadata
       if: runner.os == 'Windows'
