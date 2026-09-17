@@ -13,7 +13,7 @@ IS_WINDOWS = sys.platform == "win32"
 class BZFontGenerator:
     def __init__(self, root):
         self.root = root
-        self.root.title("Battlezone Holo Text Generator")
+        self.root.title("BZ Holographic Suite - Gen 2")
         self.root.geometry("800x950")
         
         # --- THEME & COLORS ---
@@ -78,8 +78,8 @@ class BZFontGenerator:
         # --- HEADER ---
         header_frame = ttk.Frame(self.root, padding=(20, 10))
         header_frame.pack(fill="x")
-        ttk.Label(header_frame, text="BATTLEZONE HOLO TEXT", font=(self.current_font, 24, "bold"), foreground=self.colors["highlight"]).pack(side="left")
-        ttk.Label(header_frame, text="GENERATOR", font=(self.current_font, 10), foreground=self.colors["accent"]).pack(side="left", padx=10, pady=(10, 0))
+        ttk.Label(header_frame, text="BZ HOLOGRAPHIC SUITE", font=(self.current_font, 24, "bold"), foreground=self.colors["highlight"]).pack(side="left")
+        ttk.Label(header_frame, text="GEN 2", font=(self.current_font, 10), foreground=self.colors["accent"]).pack(side="left", padx=10, pady=(10, 0))
 
         tab_control = ttk.Notebook(self.root)
         self.gen_tab = ttk.Frame(tab_control)
