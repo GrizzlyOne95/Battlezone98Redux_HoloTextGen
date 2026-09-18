@@ -11,10 +11,6 @@ on:
 permissions:
   contents: write
 
-env:
-  PACKAGE_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'ci' }}
-  WINDOWS_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.0.0' }}
-
 jobs:
   build:
     name: Build for ${{ matrix.os }}
@@ -39,6 +35,19 @@ jobs:
         python-version: '3.11'
         cache: 'pip'
 
+    - name: Resolve package version
+      id: version
+      shell: bash
+      run: |
+        if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+          tag="$GITHUB_REF_NAME"
+        else
+          tag="v$(tr -d '[:space:]' < VERSION)"
+        fi
+        version="${tag#v}"
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -54,15 +63,16 @@ jobs:
     - name: Generate Windows version metadata
       if: runner.os == 'Windows'
       shell: pwsh
-      run: python scripts/generate_version_info.py --version "${env:WINDOWS_VERSION}" --output branding/version_info.txt
+      run: python scripts/generate_version_info.py --version "${{ steps.version.outputs.version }}" --output branding/version_info.txt
 
     - name: Build Windows executable
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
         python -m PyInstaller --noconfirm --clean --onefile --windowed --icon=icon.ico --version-file=branding/version_info.txt --name BZHoloTextGenerator --add-data "BZONE.ttf;." hud_gen.py
-        if (!(Test-Path "dist/BZHoloTextGenerator.exe")) { throw "Missing dist/BZHoloTextGenerator.exe" }
-        Compress-Archive -Path "dist/BZHoloTextGenerator.exe" -DestinationPath "dist/Battlezone98Redux_HoloTextGen-${env:PACKAGE_VERSION}-windows.zip" -Force
+        if (!(Test-Path "dist/BZHoloTextGenerator.exe" -PathType Leaf)) { throw "Missing standalone dist/BZHoloTextGenerator.exe" }
+        if (Test-Path "dist/BZHoloTextGenerator" -PathType Container) { throw "Unexpected onedir bundle dist/BZHoloTextGenerator" }
+        Compress-Archive -Path "dist/BZHoloTextGenerator.exe" -DestinationPath "dist/Battlezone98Redux_HoloTextGen-${{ steps.version.outputs.tag }}-windows.zip" -Force
 
     - name: Build Linux executable
       if: runner.os == 'Linux'
@@ -71,7 +81,8 @@ jobs:
         set -euo pipefail
         python -m PyInstaller --noconfirm --clean --onefile --windowed --name BZHoloTextGenerator --add-data "BZONE.ttf:." hud_gen.py
         test -f dist/BZHoloTextGenerator
-        tar -czf "dist/Battlezone98Redux_HoloTextGen-${PACKAGE_VERSION}-linux.tar.gz" -C dist BZHoloTextGenerator
+        test ! -d dist/BZHoloTextGenerator
+        tar -czf "dist/Battlezone98Redux_HoloTextGen-${{ steps.version.outputs.tag }}-linux.tar.gz" -C dist BZHoloTextGenerator
 
     - name: Build macOS executable
       if: runner.os == 'macOS'
@@ -80,7 +91,8 @@ jobs:
         set -euo pipefail
         python -m PyInstaller --noconfirm --clean --onefile --windowed --name BZHoloTextGenerator --add-data "BZONE.ttf:." hud_gen.py
         test -f dist/BZHoloTextGenerator
-        tar -czf "dist/Battlezone98Redux_HoloTextGen-${PACKAGE_VERSION}-macos.tar.gz" -C dist BZHoloTextGenerator
+        test ! -d dist/BZHoloTextGenerator
+        tar -czf "dist/Battlezone98Redux_HoloTextGen-${{ steps.version.outputs.tag }}-macos.tar.gz" -C dist BZHoloTextGenerator
 
     - name: Upload packaged artifact
       uses: actions/upload-artifact@v4
@@ -96,9 +108,22 @@ jobs:
   release:
     name: Create Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: "${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'chore(release): v')) }}"
     runs-on: ubuntu-latest
     steps:
+    - uses: actions/checkout@v4
+
+    - name: Resolve release tag
+      id: release_version
+      shell: bash
+      run: |
+        if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+          tag="$GITHUB_REF_NAME"
+        else
+          tag="v$(tr -d '[:space:]' < VERSION)"
+        fi
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
     - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
@@ -111,13 +136,16 @@ jobs:
       run: |
         set -euo pipefail
         ls -lh release-assets
-        test -f "release-assets/Battlezone98Redux_HoloTextGen-${PACKAGE_VERSION}-windows.zip"
-        test -f "release-assets/Battlezone98Redux_HoloTextGen-${PACKAGE_VERSION}-linux.tar.gz"
-        test -f "release-assets/Battlezone98Redux_HoloTextGen-${PACKAGE_VERSION}-macos.tar.gz"
+        test -f "release-assets/Battlezone98Redux_HoloTextGen-${{ steps.release_version.outputs.tag }}-windows.zip"
+        test -f "release-assets/Battlezone98Redux_HoloTextGen-${{ steps.release_version.outputs.tag }}-linux.tar.gz"
+        test -f "release-assets/Battlezone98Redux_HoloTextGen-${{ steps.release_version.outputs.tag }}-macos.tar.gz"
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
+        tag_name: ${{ steps.release_version.outputs.tag }}
+        name: ${{ steps.release_version.outputs.tag }}
+        target_commitish: ${{ github.sha }}
         files: |
           release-assets/Battlezone98Redux_HoloTextGen-v*-windows.zip
           release-assets/Battlezone98Redux_HoloTextGen-v*-linux.tar.gz
