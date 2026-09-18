@@ -27,4 +27,4 @@ CompanyName: GrizzlyOne95
 OriginalFilename: BZHoloTextGenerator.exe
 ```
 
-`FileVersion` and `ProductVersion` are derived from the release tag. Non-release CI builds use neutral `0.0.0` Windows version metadata.
+`FileVersion` and `ProductVersion` are derived from the canonical repository version.
