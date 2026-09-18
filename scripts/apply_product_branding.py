@@ -17,12 +17,17 @@ def apply_branding(path: Path) -> None:
     data = path.read_bytes()
 
     for old, new in REPLACEMENTS:
-        count = data.count(old)
-        if count != 1:
+        old_count = data.count(old)
+        new_count = data.count(new)
+        if old_count == 1:
+            data = data.replace(old, new, 1)
+        elif old_count == 0 and new_count == 1:
+            continue
+        else:
             raise RuntimeError(
-                f"Expected exactly one occurrence of {old!r} in {path}, found {count}"
+                f"Expected exactly one legacy or branded occurrence in {path}: "
+                f"{old!r}={old_count}, {new!r}={new_count}"
             )
-        data = data.replace(old, new, 1)
 
     path.write_bytes(data)
 
