@@ -21,7 +21,7 @@ def apply_branding(path: Path) -> None:
         new_count = data.count(new)
         if old_count == 1:
             data = data.replace(old, new, 1)
-        elif old_count == 0 and new_count == 1:
+        elif old_count == 0 and new_count >= 1:
             continue
         else:
             raise RuntimeError(
